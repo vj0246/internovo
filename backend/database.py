@@ -29,6 +29,7 @@ def get_engine():
         _engine = create_async_engine(
             _build_url(raw),
             poolclass=NullPool,
+            connect_args={"statement_cache_size": 0},
             echo=False,
         )
     return _engine
