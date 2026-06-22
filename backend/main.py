@@ -4,7 +4,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, Depends
+from fastapi import FastAPI, HTTPException, Query, Depends, UploadFile, File as FFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select, update, func, and_
@@ -353,6 +353,47 @@ async def admin_briefs(
 
     return {"total": len(all_briefs), "page": page, "per_page": per_page,
             "stats": await _stats(db), "briefs": [brief_to_dict(b) for b in page_slice]}
+
+
+@app.post("/extract-file")
+async def extract_file(file: UploadFile = FFile(...)):
+    """
+    Extract plain text from an uploaded PDF, DOCX, MD, or TXT file.
+    Returns {"text": str, "filename": str} for the frontend to use as query.
+    """
+    name = (file.filename or "").lower()
+    if not any(name.endswith(ext) for ext in (".pdf", ".docx", ".md", ".txt")):
+        raise HTTPException(400, "Unsupported file type. Upload a PDF, DOCX, MD, or TXT file.")
+
+    content = await file.read()
+
+    try:
+        if name.endswith(".pdf"):
+            text = _extract_pdf(content)
+        elif name.endswith(".docx"):
+            text = _extract_docx(content)
+        else:
+            text = content.decode("utf-8", errors="ignore")
+    except Exception as exc:
+        raise HTTPException(422, f"Could not read file: {exc}")
+
+    text = text.strip()[:4000]   # cap at 4 k chars — enough for LLM context
+    if not text:
+        raise HTTPException(422, "No readable text found in the file.")
+
+    return {"text": text, "filename": file.filename}
+
+
+def _extract_pdf(data: bytes) -> str:
+    import pypdf, io
+    reader = pypdf.PdfReader(io.BytesIO(data))
+    return "\n".join(p.extract_text() or "" for p in reader.pages)
+
+
+def _extract_docx(data: bytes) -> str:
+    import docx, io
+    doc = docx.Document(io.BytesIO(data))
+    return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
 
 
 @app.get("/health")

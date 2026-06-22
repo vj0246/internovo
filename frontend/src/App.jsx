@@ -355,11 +355,13 @@ export default function App() {
   const [matches,         setMatches]  = useState([]);
   const [loading,         setLoading]  = useState(false);
   const [admin,           setAdmin]    = useState(false);
-  // Store current active question so we can re-ask on network error
   const [currentQuestion, setCurrentQ] = useState("");
+  const [attachedFile,    setFile]     = useState(null);   // { name, file }
+  const [fileError,       setFileErr]  = useState("");
 
-  const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
+  const bottomRef  = useRef(null);
+  const inputRef   = useRef(null);
+  const fileRef    = useRef(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); },
             [messages, loading, matches]);
@@ -368,17 +370,62 @@ export default function App() {
 
   const push = (role, text) => setMessages(p => [...p, { role, text }]);
 
+  const ALLOWED_EXTS = [".pdf", ".docx", ".md", ".txt"];
+  const handleFileSelect = (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
+    if (!ALLOWED_EXTS.includes(ext)) {
+      setFileErr("Only PDF, DOCX, MD, or TXT files are supported.");
+      return;
+    }
+    if (f.size > 5 * 1024 * 1024) {
+      setFileErr("File must be under 5 MB.");
+      return;
+    }
+    setFileErr("");
+    setFile({ name: f.name, file: f });
+    e.target.value = "";
+  };
+
   const handleStart = async () => {
-    if (!query.trim()) return;
+    if (!query.trim() && !attachedFile) return;
     setLoading(true);
-    const val = query;
-    push("user", val);
-    setQuery("");
+    setFileErr("");
+
+    let finalQuery = query.trim();
+    const fileLabel = attachedFile
+      ? `📎 ${attachedFile.name}${query.trim() ? ` — "${query.trim()}"` : ""}`
+      : query.trim();
+
+    // Extract text from attached file first
+    if (attachedFile) {
+      push("user", fileLabel);
+      setQuery(""); setFile(null);
+      try {
+        const fd = new FormData();
+        fd.append("file", attachedFile.file);
+        const res = await fetch(`${API_URL}/extract-file`, { method: "POST", body: fd });
+        if (!res.ok) throw new Error((await res.json()).detail || "Extraction failed.");
+        const { text } = await res.json();
+        finalQuery = finalQuery
+          ? `${finalQuery}\n\n[From ${attachedFile.name}]:\n${text}`
+          : `[From ${attachedFile.name}]:\n${text}`;
+      } catch (e) {
+        push("bot", `Could not read file: ${e.message} — please paste your brief as text instead.`);
+        setLoading(false);
+        return;
+      }
+    } else {
+      push("user", query.trim());
+      setQuery("");
+    }
+
     try {
       const res = await fetch(`${API_URL}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: val }),
+        body: JSON.stringify({ query: finalQuery }),
       });
       if (!res.ok) throw new Error((await res.json()).detail || "Server error.");
       const d = await res.json();
@@ -386,18 +433,14 @@ export default function App() {
       if (d.status === "routed") {
         if (d.completed) setDone(d.completed);
         if (d.matches)   setMatches(d.matches);
-        push("bot", d.message);
-        setStage("routed");
+        push("bot", d.message); setStage("routed");
       } else {
         if (d.completed) setDone(d.completed);
-        setQIdx(d.question_index);
-        setCurrentQ(d.question);
-        push("bot", d.question);
-        setStage("questions");
+        setQIdx(d.question_index); setCurrentQ(d.question);
+        push("bot", d.question); setStage("questions");
       }
     } catch {
       push("bot", "Connection issue — please try sending your request again.");
-      setQuery(val);
     } finally {
       setLoading(false);
     }
@@ -445,7 +488,7 @@ export default function App() {
   const reset = () => {
     setStage("input"); setQuery(""); setSid(null); setQIdx(0); setAnswer("");
     setDone(Array(5).fill(false)); setMessages([]); setMatches([]);
-    setCurrentQ("");
+    setCurrentQ(""); setFile(null); setFileErr("");
   };
 
   const onKey = (e, fn) => {
@@ -454,6 +497,7 @@ export default function App() {
   const val    = stage === "input" ? query    : answerVal;
   const setVal = stage === "input" ? setQuery : setAnswer;
   const action = stage === "input" ? handleStart : handleAnswer;
+  const canSend = stage === "input" ? (!!val.trim() || !!attachedFile) : !!val.trim();
 
   if (admin) return (
     <div className="shell">
@@ -504,24 +548,65 @@ export default function App() {
 
           <div className="input-bar">
             {stage !== "routed" ? (
-              <>
-                <textarea
-                  ref={inputRef} rows={2} value={val} disabled={loading}
-                  onChange={e => setVal(e.target.value)}
-                  onKeyDown={e => onKey(e, action)}
-                  placeholder={stage === "input"
-                    ? "Describe your design project…"
-                    : "Your answer…"}
-                />
-                <button className="send" onClick={action}
-                        disabled={loading || !val.trim()}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
-                    <path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z"
-                          stroke="white" strokeWidth="2.2"
-                          strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              </>
+              <div className="input-wrap">
+                {/* File chip — shown when file is attached */}
+                {stage === "input" && attachedFile && (
+                  <div className="file-chip">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"
+                            stroke="currentColor" strokeWidth="2"
+                            strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <span>{attachedFile.name}</span>
+                    <button className="chip-remove" onClick={() => setFile(null)}>×</button>
+                  </div>
+                )}
+                {fileError && <div className="file-error">{fileError}</div>}
+                <div className="input-row">
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileRef} type="file"
+                    accept=".pdf,.docx,.md,.txt"
+                    style={{ display: "none" }}
+                    onChange={handleFileSelect}
+                  />
+                  {/* Attach button — only on initial input stage */}
+                  {stage === "input" && (
+                    <button
+                      className="attach-btn"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={loading}
+                      title="Attach PDF, DOCX, MD, or TXT"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66L9.41 17.41a2 2 0 01-2.83-2.83l8.49-8.48"
+                              stroke="currentColor" strokeWidth="2"
+                              strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    </button>
+                  )}
+                  <textarea
+                    ref={inputRef} rows={2} value={val} disabled={loading}
+                    onChange={e => setVal(e.target.value)}
+                    onKeyDown={e => onKey(e, action)}
+                    placeholder={
+                      stage === "input"
+                        ? attachedFile
+                          ? "Add a note or send as-is…"
+                          : "Describe your project, or attach a brief…"
+                        : "Your answer…"
+                    }
+                  />
+                  <button className="send" onClick={action}
+                          disabled={loading || !canSend}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none">
+                      <path d="M22 2L11 13M22 2L15 22L11 13L2 9L22 2Z"
+                            stroke="white" strokeWidth="2.2"
+                            strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
             ) : (
               <button className="new-brief" onClick={reset}>
                 Start a new brief

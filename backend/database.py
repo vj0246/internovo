@@ -1,19 +1,10 @@
-"""
-SQLAlchemy async models — Supabase (PostgreSQL).
-Engine is created lazily on first use so the app binds to
-the port even if DATABASE_URL isn't set yet (Render env vars
-are injected before the first request, after port binding).
-
-Render env var: DATABASE_URL
-  Use the Supabase "Transaction pooler" URI (port 6543).
-"""
 import os
 from datetime import datetime
 from sqlalchemy import Column, String, Boolean, Integer, DateTime, Text, JSON, ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.pool import NullPool   # ← key fix for Supabase pgbouncer
 
-# ── Lazy engine (created on first use, not on import) ────────────────────────
 _engine          = None
 _session_factory = None
 
@@ -31,17 +22,14 @@ def get_engine():
     if _engine is None:
         raw = os.environ.get("DATABASE_URL", "")
         if not raw:
-            raise RuntimeError(
-                "DATABASE_URL is not set. "
-                "Add it in Render → Environment with your Supabase connection string."
-            )
+            raise RuntimeError("DATABASE_URL is not set.")
+        # NullPool disables SQLAlchemy's own pool entirely.
+        # Required for Supabase pgbouncer in transaction mode —
+        # avoids DuplicatePreparedStatementError.
         _engine = create_async_engine(
             _build_url(raw),
+            poolclass=NullPool,
             echo=False,
-            pool_size=5,
-            max_overflow=10,
-            pool_pre_ping=True,
-            connect_args={"statement_cache_size": 0},  # required for Supabase pgbouncer
         )
     return _engine
 
@@ -65,7 +53,6 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
 
 
-# ── Models ────────────────────────────────────────────────────────────────────
 class Base(DeclarativeBase):
     pass
 
@@ -81,14 +68,14 @@ class DBBrief(Base):
     answers        = relationship("DBAnswer", back_populates="brief",
                                   cascade="all, delete-orphan",
                                   order_by="DBAnswer.question_index")
-    matches        = relationship("DBMatch",  back_populates="brief",
+    matches        = relationship("DBMatch", back_populates="brief",
                                   cascade="all, delete-orphan")
 
 
 class DBAnswer(Base):
     __tablename__ = "brief_answers"
     id             = Column(Integer, primary_key=True, autoincrement=True)
-    brief_id       = Column(String(36), ForeignKey("briefs.id", ondelete="CASCADE"), nullable=False)
+    brief_id       = Column(String(36), ForeignKey("briefs.id", ondelete="CASCADE"))
     question_index = Column(Integer, nullable=False)
     question_text  = Column(Text, nullable=False)
     answer_text    = Column(Text, nullable=False)
@@ -99,7 +86,7 @@ class DBAnswer(Base):
 class DBMatch(Base):
     __tablename__ = "brief_matches"
     id          = Column(Integer, primary_key=True, autoincrement=True)
-    brief_id    = Column(String(36), ForeignKey("briefs.id", ondelete="CASCADE"), nullable=False)
+    brief_id    = Column(String(36), ForeignKey("briefs.id", ondelete="CASCADE"))
     person_name = Column(String(100), nullable=False)
     person_role = Column(String(200), nullable=True)
     confidence  = Column(Integer, nullable=False)

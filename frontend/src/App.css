@@ -176,9 +176,37 @@ body{margin:0;font-family:var(--font);background:var(--bg);color:var(--text);-we
 
 /* Input */
 .input-bar{
-  display:flex;gap:10px;padding:16px 28px;
+  padding:14px 28px 16px;
   border-top:1px solid var(--border);background:var(--side);
 }
+.input-wrap{ display:flex;flex-direction:column;gap:6px; }
+.input-row{ display:flex;gap:8px;align-items:flex-end; }
+
+/* File chip */
+.file-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  background:#5A67F215;border:1px solid #5A67F240;border-radius:8px;
+  padding:5px 10px;font-size:12px;color:#8899FF;max-width:100%;
+  align-self:flex-start;
+}
+.file-chip span{ overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px }
+.chip-remove{
+  background:none;border:none;color:#8899FF;cursor:pointer;
+  font-size:16px;line-height:1;padding:0 2px;opacity:.7;
+}
+.chip-remove:hover{ opacity:1 }
+.file-error{ font-size:12px;color:#F87171;padding:0 2px }
+
+/* Attach button */
+.attach-btn{
+  width:40px;min-width:40px;height:40px;border-radius:10px;
+  background:transparent;border:1px solid var(--border2);
+  color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;align-self:flex-end;transition:border-color .2s,color .2s,background .2s;
+}
+.attach-btn:hover:not(:disabled){ border-color:#5A67F250;color:var(--text);background:#5A67F208 }
+.attach-btn:disabled{ opacity:.35;cursor:not-allowed }
+
 textarea{
   flex:1;resize:none;background:var(--card);border:1px solid var(--border);
   border-radius:11px;color:var(--text);padding:11px 14px;font-size:14px;
@@ -197,7 +225,7 @@ textarea:disabled{opacity:.5}
 .send:hover:not(:disabled){opacity:.88;transform:scale(1.04)}
 .send:disabled{opacity:.28;cursor:not-allowed;box-shadow:none}
 .new-brief{
-  flex:1;padding:12px;background:transparent;border:1px solid var(--border2);
+  width:100%;padding:12px;background:transparent;border:1px solid var(--border2);
   border-radius:11px;color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;
   transition:border-color .2s,color .2s;
 }
